@@ -14,21 +14,12 @@ env:
   SCITER_RUST_VERSION: "1.75"
   RUST_VERSION: "1.75"
   MAC_RUST_VERSION: "1.81"
-  CARGO_NDK_VERSION: "3.1.2"
-  SCITER_ARMV7_CMAKE_VERSION: "3.29.7"
-  SCITER_NASM_DEBVERSION: "2.15.05-1"
   LLVM_VERSION: "15.0.6"
   FLUTTER_VERSION: "3.24.5"
-  ANDROID_FLUTTER_VERSION: "3.24.5"
-  FLUTTER_WINDOWS_ARM_VERSION: "3.44.0"
-  FLUTTER_ELINUX_VERSION: "3.16.9"
   TAG_NAME: "${{ inputs.upload-tag }}"
   VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
   VCPKG_COMMIT_ID: "120deac3062162151622ca4860575a33844ba10b"
-  ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836"
   VERSION: "1.4.9"
-  NDK_VERSION: "r28c"
-  ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
   MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
   UPLOAD_ARTIFACT: "${{ inputs.upload-artifact }}"
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}-2"
@@ -39,19 +30,11 @@ jobs:
 
   build-RustDeskTempTopMostWindow:
     uses: ./.github/workflows/third-party-RustDeskTempTopMostWindow.yml
-    strategy:
-      fail-fast: false
-      matrix:
-        job:
-          - {
-              target: windows-2022,
-              platform: x64,
-            }
     with:
       upload-artifact: ${{ inputs.upload-artifact }}
-      target: ${{ matrix.job.target }}
+      target: windows-2022
       configuration: Release
-      platform: ${{ matrix.job.platform }}
+      platform: x64
       target_version: Windows10
 
   build-for-windows-flutter:
@@ -89,7 +72,8 @@ jobs:
           sed -i.bak 's|^pub const RENDEZVOUS_SERVERS:.*|pub const RENDEZVOUS_SERVERS: \&[\&str] = \&["dgrd01.datagest.it"];|' libs/hbb_common/src/config.rs
           sed -i.bak 's|^pub const RS_PUB_KEY:.*|pub const RS_PUB_KEY: \&str = "n4x6FWYczDsD8wQynlHKu2nmztDKq0BF1DMkcFX";|' libs/hbb_common/src/config.rs
           rm -f libs/hbb_common/src/config.rs.bak
-          cat libs/hbb_common/src/config.rs | grep -A1 "RENDEZVOUS_SERVERS:"
+          echo "=== Verifica patch applicata ==="
+          grep -n "RENDEZVOUS_SERVERS:\|RS_PUB_KEY:" libs/hbb_common/src/config.rs
 
       - name: Restore bridge files
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -104,12 +88,13 @@ jobs:
 
       - name: Install flutter
         id: flutter
-        uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225  # v2.12.0
+        uses: subosito/flutter-action@2783a3f08e1baf891508463f8c6653c258246225 # v2.12.0
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
           architecture: x64
 
+      # https://github.com/flutter/flutter/issues/155685
       - name: Replace engine with rustdesk custom flutter engine
         run: |
           flutter doctor -v
@@ -168,12 +153,14 @@ jobs:
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec ${{ matrix.job.build-args }}
           mv ./flutter/build/windows/${{ matrix.job.flutter-arch }}/runner/Release ./rustdesk
 
+          # Download usbmmidd_v2.zip and extract it to ./rustdesk
           Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
           Expand-Archive usbmmidd_v2.zip -DestinationPath .
           Remove-Item -Path usbmmidd_v2\Win32 -Recurse
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
           mv -Force .\usbmmidd_v2 ./rustdesk
 
+          # Download printer driver files and extract them to ./rustdesk
           try {
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
             Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
@@ -209,7 +196,6 @@ jobs:
           else
             echo "Runner.res: $runner_res";
             cp $runner_res ./libs/portable/Runner.res;
-            echo "list ./libs/portable/Runner.res";
             ls -l ./libs/portable/Runner.res;
           fi
 
@@ -226,13 +212,6 @@ jobs:
         with:
           name: rustdesk-unsigned-windows-${{ matrix.job.arch }}
           path: rustdesk
-
-      - name: Sign rustdesk files
-        if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
-        shell: bash
-        run: |
-          pip3 install requests argparse
-          BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./rustdesk/
 
       - name: Build self-extracted executable
         shell: bash
@@ -260,11 +239,12 @@ jobs:
           mv $msi.FullName ../../SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.msi
           sha256sum ../../SignOutput/rustdesk-*.msi
 
-      - name: Sign rustdesk self-extracted file
-        if: env.UPLOAD_ARTIFACT == 'true' && env.SIGN_BASE_URL != '-2'
-        shell: bash
-        run: |
-          BASE_URL=${{ env.SIGN_BASE_URL }} SECRET_KEY=${{ secrets.SIGN_SECRET_KEY }} python3 res/job.py sign_files ./SignOutput
+      - name: Upload installers (exe + msi)
+        if: env.UPLOAD_ARTIFACT == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rustdesk-installers-windows-${{ matrix.job.arch }}
+          path: ./SignOutput/
 
       - name: Publish Release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
@@ -317,7 +297,8 @@ jobs:
           sed -i.bak 's|^pub const RENDEZVOUS_SERVERS:.*|pub const RENDEZVOUS_SERVERS: \&[\&str] = \&["dgrd01.datagest.it"];|' libs/hbb_common/src/config.rs
           sed -i.bak 's|^pub const RS_PUB_KEY:.*|pub const RS_PUB_KEY: \&str = "n4x6FWYczDsD8wQynlHKu2nmztDKq0BF1DMkcFX";|' libs/hbb_common/src/config.rs
           rm -f libs/hbb_common/src/config.rs.bak
-          cat libs/hbb_common/src/config.rs | grep -A1 "RENDEZVOUS_SERVERS:"
+          echo "=== Verifica patch applicata ==="
+          grep -n "RENDEZVOUS_SERVERS:\|RS_PUB_KEY:" libs/hbb_common/src/config.rs
 
       - name: Import the codesign cert
         if: env.MACOS_P12_BASE64 != null
@@ -362,6 +343,8 @@ jobs:
 
       - name: Install NASM
         run: |
+          # NASM 2.16.x dalle release ufficiali.
+          # NON usare `brew install nasm`: installa NASM 3.x, incompatibile con aom/ffmpeg.
           wget https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip
           unzip nasm-2.16.03-macosx.zip
           sudo cp nasm-2.16.03/nasm /usr/local/bin/nasm
@@ -382,6 +365,7 @@ jobs:
         shell: bash
         run: |
           cd "$(dirname "$(which flutter)")"
+          # https://github.com/flutter/flutter/issues/133533
           sed -i -e 's/_setFramesEnabledState(false);/\/\/_setFramesEnabledState(false);/g' ../packages/flutter/lib/src/scheduler/binding.dart
           grep -n '_setFramesEnabledState(false);' ../packages/flutter/lib/src/scheduler/binding.dart
 
@@ -470,16 +454,9 @@ jobs:
           security unlock-keychain -p ${{ secrets.MACOS_P12_PASSWORD }} rustdesk.keychain
           rm -rf *.dmg || true
           codesign --force --options runtime -s ${{ secrets.MACOS_CODESIGN_IDENTITY }} --deep --strict ./flutter/build/macos/Build/Products/Release/RustDesk.app -vvv
-          create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}.dmg ./flutter/build/macos/Build/Products/Release/RustDesk.app
-          codesign --force --options runtime -s ${{ secrets.MACOS_CODESIGN_IDENTITY }} --deep --strict rustdesk-${{ env.VERSION }}.dmg -vvv
-          rcodesign notary-submit --api-key-path ${{ github.workspace }}/rustdesk.json  --staple rustdesk-${{ env.VERSION }}.dmg
-
-      - name: Rename rustdesk
-        if: env.UPLOAD_ARTIFACT == 'true'
-        run: |
-          for name in rustdesk*??.dmg; do
-              mv "$name" "${name%%.dmg}-${{ matrix.job.arch }}.dmg"
-          done
+          create-dmg --icon "RustDesk.app" 200 190 --hide-extension "RustDesk.app" --window-size 800 400 --app-drop-link 600 185 rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg ./flutter/build/macos/Build/Products/Release/RustDesk.app
+          codesign --force --options runtime -s ${{ secrets.MACOS_CODESIGN_IDENTITY }} --deep --strict rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg -vvv
+          rcodesign notary-submit --api-key-path ${{ github.workspace }}/rustdesk.json --staple rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg
 
       - name: Publish DMG package
         if: env.UPLOAD_ARTIFACT == 'true'
@@ -488,40 +465,4 @@ jobs:
           prerelease: true
           tag_name: ${{ env.TAG_NAME }}
           files: |
-            rustdesk*-${{ matrix.job.arch }}.dmg
-
-  publish_unsigned:
-    needs:
-      - build-for-macOS
-      - build-for-windows-flutter
-    runs-on: ubuntu-latest
-    if: ${{ inputs.upload-artifact }}
-    steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: rustdesk-unsigned-macos-x86_64
-          path: ./
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: rustdesk-unsigned-macos-aarch64
-          path: ./
-
-      - name: Download Artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: rustdesk-unsigned-windows-x86_64
-          path: ./windows-x86_64/
-
-      - name: Combine unsigned app
-        run: |
-          tar czf rustdesk-${{ env.VERSION }}-unsigned.tar.gz *.dmg windows-x86_64
-
-      - name: Publish unsigned app
-        uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844 # v1
-        with:
-          prerelease: true
-          tag_name: ${{ env.TAG_NAME }}
-          files: rustdesk-${{ env.VERSION }}-unsigned.tar.gz
+            rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.dmg
