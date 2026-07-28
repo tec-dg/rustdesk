@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           sed -i.bak 's|^pub const RENDEZVOUS_SERVERS:.*|pub const RENDEZVOUS_SERVERS: \&[\&str] = \&["dgrd01.datagest.it"];|' libs/hbb_common/src/config.rs
-          sed -i.bak 's|^pub const RS_PUB_KEY:.*|pub const RS_PUB_KEY: \&str = "n4x6FWYczDsD8wQynlHKu2nmztDKq0BF1DMkcFX";|' libs/hbb_common/src/config.rs
+          sed -i.bak 's|^pub const RS_PUB_KEY:.*|pub const RS_PUB_KEY: \&str = "n4x6FWYczDsD8wQynlHKu2nmztDKq0BF1DMkcFXk108=";|' libs/hbb_common/src/config.rs
           rm -f libs/hbb_common/src/config.rs.bak
           echo "=== Verifica patch applicata ==="
           grep -n "RENDEZVOUS_SERVERS:\|RS_PUB_KEY:" libs/hbb_common/src/config.rs
@@ -295,7 +295,7 @@ jobs:
         shell: bash
         run: |
           sed -i.bak 's|^pub const RENDEZVOUS_SERVERS:.*|pub const RENDEZVOUS_SERVERS: \&[\&str] = \&["dgrd01.datagest.it"];|' libs/hbb_common/src/config.rs
-          sed -i.bak 's|^pub const RS_PUB_KEY:.*|pub const RS_PUB_KEY: \&str = "n4x6FWYczDsD8wQynlHKu2nmztDKq0BF1DMkcFX";|' libs/hbb_common/src/config.rs
+          sed -i.bak 's|^pub const RS_PUB_KEY:.*|pub const RS_PUB_KEY: \&str = "n4x6FWYczDsD8wQynlHKu2nmztDKq0BF1DMkcFXk108=";|' libs/hbb_common/src/config.rs
           rm -f libs/hbb_common/src/config.rs.bak
           echo "=== Verifica patch applicata ==="
           grep -n "RENDEZVOUS_SERVERS:\|RS_PUB_KEY:" libs/hbb_common/src/config.rs
